@@ -89,6 +89,29 @@ void* string_dict_get(string_dict_t dict, const char* key) {
     return NULL;
 }
 
+bool string_dict_has(string_dict_t dict, const char* key, void** valptr) {
+    unsigned int hash = ((unsigned) hash_string(key)) % dict->capacity;
+    for (unsigned int i = hash; i < dict->capacity; i++) {
+        if (dict->items[i].key == NULL) {
+            return false;
+        }
+        if (strcmp(dict->items[i].key, key) == 0) {
+            if (valptr) *valptr = dict->items[i].val;
+            return true;
+        }
+    };
+    for (unsigned int i = 0; i < dict->capacity; i++) {
+        if (dict->items[i].key == NULL) {
+            return false;
+        }
+        if (strcmp(dict->items[i].key, key) == 0) {
+            if (valptr) *valptr = dict->items[i].val;
+            return true;
+        }
+    };
+    return false;
+}
+
 unsigned int string_dict_get_size(string_dict_t dict) {
     return dict->count;
 }

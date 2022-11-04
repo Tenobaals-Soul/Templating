@@ -21,6 +21,7 @@ typedef struct dict_iter {
 void string_dict_init(string_dict_t dict);
 void string_dict_put(string_dict_t dict, const char* key, void* val);
 void* string_dict_get(string_dict_t dict, const char* key);
+bool string_dict_has(string_dict_t dict, const char* key, void** valptr);
 unsigned int string_dict_get_size(string_dict_t dict);
 void string_dict_destroy(string_dict_t dict);
 void string_dict_foreach(string_dict_t dict, void (*action)(const char* key, void* val));

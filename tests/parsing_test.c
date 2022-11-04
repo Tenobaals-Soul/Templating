@@ -34,8 +34,8 @@ void test_basics() {
     assert_str_equal(parse_identifier(mr("hello world"), NULL), "hello");
     assert_str_equal(parse_operator(mr("+ 2"), NULL, &env), "+");
     assert_str_equal(parse_operator(mr("2times 2"), NULL, &env), NULL);
-    assert_str_equal(parse_string(mr("\"hello world\""), NULL), "hello world");
-    assert_str_equal(parse_string(mr("hello world"), NULL), NULL);
+    assert_str_equal(parse_string(mr("\"hello world\""), NULL, NULL), "hello world");
+    assert_str_equal(parse_string(mr("hello world"), NULL, NULL), NULL);
     string_dict_destroy(env.operators);
 }
 

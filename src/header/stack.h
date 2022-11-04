@@ -33,7 +33,7 @@ long pop_lng(stack_t stack);
 long long pop_llg(stack_t stack);
 void* pop_ptr(stack_t stack);
 
-void destroy_stack(stack_t stack);
+void stack_destroy(stack_t stack);
 void* stack_disown(stack_t stack);
 
 #endif

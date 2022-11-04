@@ -92,15 +92,16 @@ Exception* make_exception(Exception* caused_by, size_t parsed_symbols, reader_t 
     Exception* exc = malloc(sizeof(Exception));
     exc->caused_by = caused_by;
     exc->parsed_symbols = parsed_symbols;
-    exc->text_pos = r.text + r.cur;
+    seekqueue(r.queue, r.cur);
+    peekqueuemany(r.queue, 16, &exc->text_pos);
     exc->val = buffer;
     return exc;
 }
 
 char parse_char(reader_t* reader, Exception** excptr) {
-    char out = reader->text[reader->cur];
-    if (out == 0) update_exc(excptr, make_exception(NULL, 0, *reader, "EOF"));
-    else reader->cur++;
+    seekqueue(reader->queue, reader->cur);
+    int out = popqueue(reader->queue);
+    if (out == -1) update_exc(excptr, make_exception(NULL, 0, *reader, "EOF"));
     return out;
 }
 
@@ -183,7 +184,9 @@ char parse_digit(reader_t* reader, Exception** excptr) {
 }
 
 struct number parse_number(reader_t* reader, struct Exception** excptr) {
-    char* startptr = reader->text + reader->cur;
+    seekqueue(reader->queue, reader->cur);
+    char* startptr;
+    peekqueuemany(reader->queue, 64, &startptr);
     char* errptri;
     char* errptrf;
     uintmax_t iout = strtoumax(startptr, &errptri, 0);
@@ -204,16 +207,19 @@ struct number parse_number(reader_t* reader, struct Exception** excptr) {
         to_ret.type = NFLOATING;
         to_ret.f = fout;
     }
-    if (errptr == reader->text + reader->cur) {
+    if (errptr == startptr) {
         update_exc(excptr, make_exception(NULL, 0, *reader, "not a number"));
+        free(startptr);
         return (struct number) {0};
     }
     if (err == ERANGE) {
         update_exc(excptr, make_exception(NULL, 1, *reader, "number too big"));
+        free(startptr);
         return (struct number) {0};
     }
     update_exc(excptr, NULL);
     reader->cur += errptr - startptr;
+    free(startptr);
     return to_ret;
 }
 
@@ -255,7 +261,7 @@ bool parse_keyword(reader_t* reader, Exception** excptr, const char* expect) {
     return true;
 }
 
-char* parse_operator(reader_t* reader, Exception** excptr, enviroment_t* env) {
+char* parse_operator(reader_t* reader, Exception** excptr, context_t env) {
     Exception* exc = NULL;
     for (dict_iter_t i = get_dict_iter(env->operators); i.hasnext; dict_iter_advance(&i)) {
         if (parse_keyword(reader, &exc, i.key)) {
@@ -288,7 +294,7 @@ char parse_character(reader_t* reader, Exception** excptr) {
     return c;
 }
 
-char* parse_string(reader_t* reader, Exception** excptr) {
+char* parse_string(reader_t* reader, Exception** excptr, size_t* size) {
     reader_t r = *reader;
     Exception* exc = NULL;
     if (parse_specific_char(&r, &exc, '\"') == 0) {
@@ -301,7 +307,7 @@ char* parse_string(reader_t* reader, Exception** excptr) {
         char c;
         if ((c = parse_char(&r, &exc)) == 0 || c == '\n') {
             update_exc(excptr, make_exception(exc, 1, r, "no closing \" was found"));
-            destroy_stack(stack);
+            stack_destroy(stack);
             return NULL;
         }
         else if (c == '\"') break;
@@ -309,6 +315,7 @@ char* parse_string(reader_t* reader, Exception** excptr) {
     }
     update_exc(excptr, NULL);
     *reader = r;
+    if (size) *size = stack->bsize;
     return stack_disown(stack);
 }
 
@@ -355,7 +362,8 @@ value_t* parse_character_value(reader_t* reader, Exception** excptr) {
 
 value_t* parse_string_value(reader_t* reader, Exception** excptr) {
     Exception* exc = NULL;
-    char* out_val = parse_string(reader, &exc);
+    size_t size;
+    char* out_val = parse_string(reader, &exc, &size);
     value_string_t* out_wrapper = calloc(1, sizeof(*out_wrapper));
     if (exc) {
         update_exc(excptr, exc);
@@ -365,6 +373,7 @@ value_t* parse_string_value(reader_t* reader, Exception** excptr) {
         update_exc(excptr, NULL);
         out_wrapper->type = VALUE_STRING;
         out_wrapper->value = out_val;
+        out_wrapper->actual_length = size;
         return &out_wrapper->type;
     }
 }
@@ -379,20 +388,6 @@ void free_value(value_t* val) {
     case VALUE_STRING:
         free(((value_string_t*) val)->value);
         break;
-    case VALUE_TUPLE:
-        if (((value_tuple_t*) val)->value == NULL) break;
-        for (size_t i = 0; i < ((value_tuple_t*) val)->items; i++) {
-            free_value(((value_tuple_t*) val)->value[i]);
-        }
-        free(((value_tuple_t*) val)->value);
-        break;
-    case VALUE_SCALAR_INITIALIZER:
-        if (((value_scalar_initializer_t*) val)->value == NULL) break;
-        for (size_t i = 0; i < ((value_scalar_initializer_t*) val)->items; i++) {
-            free_value(((value_scalar_initializer_t*) val)->value[i]);
-        }
-        free(((value_scalar_initializer_t*) val)->value);
-        break;
     case VALUE_OPERATION:
         free_value(((value_operation_t*) val)->left);
         free_value(((value_operation_t*) val)->right);
@@ -400,6 +395,8 @@ void free_value(value_t* val) {
         break;
     case VALUE_VARIABLE:
         free(((value_variable_t*) val)->name);
+    case VALUE_FILTER:
+        free(((value_filter_t*) val)->name);
     }
     free(val);
 }
@@ -409,80 +406,7 @@ static void free_value_stack(stack_t stack) {
     while ((val = pop_ptr(stack))) {
         free_value(val);
     }
-    destroy_stack(stack);
-}
-
-static value_t** parse_expression_list(reader_t* reader, Exception** excptr, enviroment_t* env, char start, char end, size_t* len) {
-    reader_t r = *reader;
-    Exception* exc = NULL;
-    skip_whitespace(&r);
-    if (!parse_specific_char(&r, &exc, start)) {
-        update_exc(excptr, make_exception(exc, 0, r, "expected a \'%c\'", start));
-        return NULL;
-    }
-    stack_t stack;
-    init_stack(stack);
-    value_t* val;
-    skip_whitespace(&r);
-    if (parse_specific_char(&r, &exc, end)) goto skipall;
-    if ((val = parse_expression(&r, &exc, env))) {
-        push_ptr(stack, val);
-    }
-    else {
-        free_value_stack(stack);
-        update_exc(excptr, make_exception(exc, 1, r, "expected a value here"));
-        return NULL;
-    }
-    for (;;) {
-        skip_whitespace(&r);
-        if (parse_specific_char(&r, &exc, end)) break;
-        skip_whitespace(&r);
-        if (parse_specific_char(&r, &exc, ',')) {
-            skip_whitespace(&r);
-            if ((val = parse_expression(&r, &exc, env))) {
-                push_ptr(stack, val);
-            }
-            else {
-                free_value_stack(stack);
-                update_exc(excptr, make_exception(exc, 1, r, "expected a value here"));
-                return NULL;
-            }
-        }
-        else {
-            free_value_stack(stack);
-            update_exc(excptr, make_exception(exc, 1, r, "expected a , or %c here", end));
-            return NULL;
-        }
-    }
-skipall:
-    *len = stack->bsize / sizeof(value_t*);
-    *reader = r;
-    return (value_t**) stack_disown(stack);
-}
-
-value_t* parse_scalar_initializer(reader_t* reader, Exception** excptr, enviroment_t* env) {
-    size_t len;
-    reader_t r = *reader;
-    value_t** values = parse_expression_list(&r, excptr, env, '{', '}', &len);
-    if (values == NULL) {
-        return NULL;
-    }
-    value_scalar_initializer_t* sinit = malloc(sizeof(*sinit));
-    sinit->type = VALUE_SCALAR_INITIALIZER;
-    sinit->items = len;
-    sinit->value = values;
-    return (value_t*) sinit;
-}
-
-value_t* parse_tuple(reader_t* reader, Exception** excptr, enviroment_t* env) {
-    size_t len;
-    value_t** values = parse_expression_list(reader, excptr, env, '(', ')', &len);
-    if (values == NULL) return NULL;
-    value_tuple_t* tuple = malloc(sizeof(*tuple));
-    tuple->type = VALUE_TUPLE;
-    tuple->items = len;
-    tuple->value = values;
-    return (value_t*) tuple;
+    stack_destroy(stack);
 }
 
 value_t* parse_variable(reader_t* reader, Exception** excptr) {
@@ -496,11 +420,34 @@ value_t* parse_variable(reader_t* reader, Exception** excptr) {
     return (value_t*) v;
 }
 
-value_t* parse_value(reader_t* reader, Exception** excptr, enviroment_t* env) {
+value_t* parse_filter(reader_t* reader, Exception** excptr) {
+    reader_t r = *reader;
+    Exception* exc;
+    if (!parse_specific_char(&r, &exc, '|')) {
+        update_exc(excptr, make_exception(exc, 0, r, "expected a pipe character | for filter"));
+        return NULL;
+    }
+    char* name = parse_identifier(&r, &exc);
+    if (name == NULL) {
+        update_exc(excptr, make_exception(exc, 0, r, "expected filter name"));
+        return NULL;
+    }
+    value_filter_t* out = malloc(sizeof(value_filter_t));
+    out->type = VALUE_FILTER;
+    out->name = name;
+    return out;
+}
+
+value_t* parse_value(reader_t* reader, Exception** excptr, context_t env) {
     Exception* temp_exc = NULL;
     Exception* exc = NULL;
     value_t* out;
     skip_whitespace(reader);
+    if ((out = parse_filter(reader, &exc))) {
+        if (temp_exc) free_exception(temp_exc);
+        return out;
+    }
+    else update_exc(&temp_exc, exc);
     if ((out = parse_character_value(reader, &exc))) {
         if (temp_exc) free_exception(temp_exc);
         return out;
@@ -519,19 +466,7 @@ value_t* parse_value(reader_t* reader, Exception** excptr, enviroment_t* env) {
     }
     else update_exc(&temp_exc, exc);
     exc = NULL;
-    if ((out = parse_scalar_initializer(reader, &exc, env))) {
-        if (temp_exc) free_exception(temp_exc);
-        return out;
-    }
-    else update_exc(&temp_exc, exc);
-    exc = NULL;
     if ((out = parse_variable(reader, &exc))) {
-        if (temp_exc) free_exception(temp_exc);
-        return out;
-    }
-    else update_exc(&temp_exc, exc);
-    exc = NULL;
-    if ((out = parse_tuple(reader, &exc, env))) {
         if (temp_exc) free_exception(temp_exc);
         return out;
     }
@@ -546,10 +481,7 @@ void skip_whitespace(reader_t* reader) {
     for (;;) {
         switch (parse_char(&r, NULL)) {
         case ' ':
-            break;
         case '\n':
-            r.loff = r.cur;
-            r.line++;
             break;
         case 0:
             *reader = r;
@@ -575,7 +507,7 @@ struct expression_parsing_locals {
     size_t values_parsed;
 };
 
-bool parse_expression_value(enviroment_t* env, struct expression_parsing_locals* l) {
+bool parse_expression_value(context_t env, struct expression_parsing_locals* l) {
     value_t* val = parse_value(&l->r, &l->exc, env);
     if (val) {
         push_ptr(l->vastack, val);
@@ -633,7 +565,7 @@ void pushback(stack_t vastack, stack_t opstack, char* op) {
     }
 }
 
-bool parse_expression_operator(enviroment_t* env, struct expression_parsing_locals* l) {
+bool parse_expression_operator(context_t env, struct expression_parsing_locals* l) {
     char* op = parse_operator(&l->r, &l->exc, env);
     if (op != NULL) {
         value_operation_t* opwrapper = malloc(sizeof(value_operation_t));
@@ -648,7 +580,7 @@ bool parse_expression_operator(enviroment_t* env, struct expression_parsing_loca
     return false;
 }
 
-value_t* parse_expression(reader_t* reader, Exception** excptr, enviroment_t* env) {
+value_t* parse_expression(reader_t* reader, Exception** excptr, context_t env) {
     struct expression_parsing_locals l;
     l.r = *reader;
     l.exc = NULL;
@@ -668,8 +600,8 @@ value_t* parse_expression(reader_t* reader, Exception** excptr, enviroment_t* en
             if (!parse_expression_operator(env, &l)) {
                 pushback(l.vastack, l.opstack, NULL);
                 value_t* val = pop_ptr(l.vastack);
-                destroy_stack(l.vastack);
-                destroy_stack(l.opstack);
+                stack_destroy(l.vastack);
+                stack_destroy(l.opstack);
                 *reader = l.r;
                 return val;
             }

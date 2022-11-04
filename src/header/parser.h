@@ -4,12 +4,11 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string_dict.h>
+#include <io_queues.h>
 
-typedef struct reader_t {
-    char* text;
+typedef struct {
+    input_queue_t queue;
     size_t cur;
-    size_t line;
-    size_t loff;
 } reader_t;
 
 struct Exception;
@@ -24,9 +23,10 @@ struct number {
     };
 };
 
-typedef struct enviroment_s {
+typedef struct context {
+    string_dict_t filter;
     string_dict_t operators;
-} enviroment_t;
+} context_t[1];
 
 #if !defined(TYPES_ONLY)
 #if defined(TEST)
@@ -49,9 +49,9 @@ struct number parse_number(reader_t* reader, struct Exception** excptr);
 char parse_character(reader_t* reader, struct Exception** excptr);
 char* parse_identifier(reader_t* reader, struct Exception** excptr);
 char parse_operator_char(reader_t* reader, struct Exception** excptr);
-char* parse_operator(reader_t* reader, struct Exception** excptr, enviroment_t* env);
+char* parse_operator(reader_t* reader, struct Exception** excptr, context_t env);
 bool parse_keyword(reader_t* reader, struct Exception** excptr, const char* expect);
-char* parse_string(reader_t* reader, struct Exception** excptr);
+char* parse_string(reader_t* reader, struct Exception** excptr, size_t* size);
 #endif
 
 typedef enum value_type {
@@ -59,10 +59,9 @@ typedef enum value_type {
     VALUE_FLOATING,
     VALUE_STRING,
     VALUE_CHAR,
-    VALUE_SCALAR_INITIALIZER,
-    VALUE_TUPLE,
     VALUE_OPERATION,
-    VALUE_VARIABLE
+    VALUE_VARIABLE,
+    VALUE_FILTER
 } value_t;
 
 typedef struct value_integer_s {
@@ -78,6 +77,7 @@ typedef struct value_floating_s {
 typedef struct value_string_s {
     value_t type;
     char* value;
+    size_t actual_length;
 } value_string_t;
 
 typedef struct value_char_s {
@@ -85,20 +85,9 @@ typedef struct value_char_s {
     char value;
 } value_char_t;
 
-typedef struct value_scalar_initializer_s {
-    value_t type;
-    value_t** value;
-    size_t items;
-} value_scalar_initializer_t;
-
-typedef struct value_tuple_s {
-    value_t type;
-    value_t** value;
-    size_t items;
-} value_tuple_t;
-
 typedef struct value_operation_s {
     value_t type;
+    int eval;
     char* operator_name;
     value_t* left;
     value_t* right;
@@ -106,13 +95,23 @@ typedef struct value_operation_s {
 
 typedef struct value_variable_s {
     value_t type;
+    int eval;
     char* name;
+    size_t resolved_off;
 } value_variable_t;
 
-value_t* parse_scalar_initializer(reader_t* reader, struct Exception** excptr, enviroment_t* env);
-value_t* parse_tuple(reader_t* reader, struct Exception** excptr, enviroment_t* env);
-value_t* parse_value(reader_t* reader, struct Exception** excptr, enviroment_t* env);
+typedef struct value_filter_s {
+    value_t type;
+    value_t* in;
+    int eval;
+    char* name;
+    void* resolved;
+} value_filter_t;
 
-value_t* parse_expression(reader_t* reader, struct Exception** excptr, enviroment_t* env);
+value_t* parse_scalar_initializer(reader_t* reader, struct Exception** excptr, context_t env);
+value_t* parse_tuple(reader_t* reader, struct Exception** excptr, context_t env);
+value_t* parse_value(reader_t* reader, struct Exception** excptr, context_t env);
+
+value_t* parse_expression(reader_t* reader, struct Exception** excptr, context_t env);
 
 #endif
