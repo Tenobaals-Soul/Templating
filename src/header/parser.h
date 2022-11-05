@@ -23,10 +23,16 @@ struct number {
     };
 };
 
-typedef struct context {
-    string_dict_t filter;
-    string_dict_t operators;
-} context_t[1];
+enum operator {
+    AND, OR,
+    EQUALS, NEQUALS,
+    LEQUALS, GEQUALS,
+    LESS, GREATER,
+    ADD, SUBTRACT,
+    MULTIPLY, DIVIDE,
+    BINOR, BINAND,
+    LSHIFT, RSHIFT
+};
 
 #if !defined(TYPES_ONLY)
 #if defined(TEST)
@@ -38,6 +44,7 @@ char parse_digit(reader_t* reader, struct Exception** excptr);
 void update_exc(struct Exception** dest, struct Exception* val);
 void free_exception(struct Exception* exc);
 void skip_whitespace(reader_t* reader);
+enum value_type* parse_value(reader_t* reader, struct Exception** excptr);
 #ifdef __GNUC__
 __attribute__((__format__(__printf__, 4, 5)))
 #endif
@@ -49,7 +56,7 @@ struct number parse_number(reader_t* reader, struct Exception** excptr);
 char parse_character(reader_t* reader, struct Exception** excptr);
 char* parse_identifier(reader_t* reader, struct Exception** excptr);
 char parse_operator_char(reader_t* reader, struct Exception** excptr);
-char* parse_operator(reader_t* reader, struct Exception** excptr, context_t env);
+int parse_operator(reader_t* reader, struct Exception** excptr);
 bool parse_keyword(reader_t* reader, struct Exception** excptr, const char* expect);
 char* parse_string(reader_t* reader, struct Exception** excptr, size_t* size);
 #endif
@@ -88,7 +95,7 @@ typedef struct value_char_s {
 typedef struct value_operation_s {
     value_t type;
     int eval;
-    char* operator_name;
+    int operatorno;
     value_t* left;
     value_t* right;
 } value_operation_t;
@@ -108,10 +115,8 @@ typedef struct value_filter_s {
     void* resolved;
 } value_filter_t;
 
-value_t* parse_scalar_initializer(reader_t* reader, struct Exception** excptr, context_t env);
-value_t* parse_tuple(reader_t* reader, struct Exception** excptr, context_t env);
-value_t* parse_value(reader_t* reader, struct Exception** excptr, context_t env);
+void free_value(value_t* val);
 
-value_t* parse_expression(reader_t* reader, struct Exception** excptr, context_t env);
+value_t* parse_expression(reader_t* reader, struct Exception** excptr);
 
 #endif

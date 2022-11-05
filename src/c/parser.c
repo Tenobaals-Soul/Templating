@@ -261,16 +261,28 @@ bool parse_keyword(reader_t* reader, Exception** excptr, const char* expect) {
     return true;
 }
 
-char* parse_operator(reader_t* reader, Exception** excptr, context_t env) {
+static const char* operators[] = {
+    "&&", "||",
+    "==", "!=",
+    "<=", ">=",
+    "<", ">",
+    "+", "-",
+    "*", "/",
+    "|", "&",
+    "<<", ">>",
+    NULL
+};
+
+int parse_operator(reader_t* reader, Exception** excptr) {
     Exception* exc = NULL;
-    for (dict_iter_t i = get_dict_iter(env->operators); i.hasnext; dict_iter_advance(&i)) {
-        if (parse_keyword(reader, &exc, i.key)) {
+    for (int i = 0; operators[i]; i++) {
+        if (parse_keyword(reader, &exc, operators[i])) {
             if (exc) free_exception(exc);
-            return strdup(i.key);
+            return i;
         }
     }
     update_exc(excptr, make_exception(exc, 0, *reader, "no operator found"));
-    return NULL;
+    return -1;
 }
 
 char parse_character(reader_t* reader, Exception** excptr) {
@@ -391,12 +403,13 @@ void free_value(value_t* val) {
     case VALUE_OPERATION:
         free_value(((value_operation_t*) val)->left);
         free_value(((value_operation_t*) val)->right);
-        free(((value_operation_t*) val)->operator_name);
         break;
     case VALUE_VARIABLE:
         free(((value_variable_t*) val)->name);
+        break;
     case VALUE_FILTER:
         free(((value_filter_t*) val)->name);
+        break;
     }
     free(val);
 }
@@ -420,11 +433,11 @@ value_t* parse_variable(reader_t* reader, Exception** excptr) {
     return (value_t*) v;
 }
 
-value_t* parse_filter(reader_t* reader, Exception** excptr) {
+value_filter_t* parse_filter(reader_t* reader, Exception** excptr) {
     reader_t r = *reader;
     Exception* exc;
-    if (!parse_specific_char(&r, &exc, '|')) {
-        update_exc(excptr, make_exception(exc, 0, r, "expected a pipe character | for filter"));
+    if (!parse_specific_char(&r, &exc, ':')) {
+        update_exc(excptr, make_exception(exc, 0, r, "expected : for a filter"));
         return NULL;
     }
     char* name = parse_identifier(&r, &exc);
@@ -438,16 +451,11 @@ value_t* parse_filter(reader_t* reader, Exception** excptr) {
     return out;
 }
 
-value_t* parse_value(reader_t* reader, Exception** excptr, context_t env) {
+value_t* parse_value(reader_t* reader, Exception** excptr) {
     Exception* temp_exc = NULL;
     Exception* exc = NULL;
     value_t* out;
     skip_whitespace(reader);
-    if ((out = parse_filter(reader, &exc))) {
-        if (temp_exc) free_exception(temp_exc);
-        return out;
-    }
-    else update_exc(&temp_exc, exc);
     if ((out = parse_character_value(reader, &exc))) {
         if (temp_exc) free_exception(temp_exc);
         return out;
@@ -507,8 +515,8 @@ struct expression_parsing_locals {
     size_t values_parsed;
 };
 
-bool parse_expression_value(context_t env, struct expression_parsing_locals* l) {
-    value_t* val = parse_value(&l->r, &l->exc, env);
+bool parse_expression_value(struct expression_parsing_locals* l) {
+    value_t* val = parse_value(&l->r, &l->exc);
     if (val) {
         push_ptr(l->vastack, val);
         l->values_parsed++;
@@ -527,37 +535,41 @@ bool parse_expression_value(context_t env, struct expression_parsing_locals* l) 
     return true;
 }
 
-int priority(const char* op) {
-    if (op == NULL) return INT_MIN;
-    if (strcmp(op, "&&") == 0) return 0;
-    if (strcmp(op, "||") == 0) return 0;
-
-    if (strcmp(op, "==") == 0) return 0;
-    if (strcmp(op, "!=") == 0) return 0;
-
-    if (strcmp(op, "<=") == 0) return 1;
-    if (strcmp(op, ">=") == 0) return 1;
-    if (strcmp(op, "<") == 0) return 2;
-    if (strcmp(op, ">") == 0) return 2;
-
-    if (strcmp(op, "+") == 0) return 3;
-    if (strcmp(op, "-") == 0) return 3;
-
-
-    if (strcmp(op, "*") == 0) return 4;
-    if (strcmp(op, "/") == 0) return 4;
-
-    if (strcmp(op, "|") == 0) return 5;
-
-    if (strcmp(op, "&") == 0) return 6;
-
-    if (strcmp(op, "<<") == 0) return 7;
-    if (strcmp(op, ">>") == 0) return 7;
-    else return -1;
+int priority(int op) {
+    switch (op) {
+    case -1: // pushback all
+        return INT_MIN;
+    case 0: // &&
+    case 1: // ||
+        return 0;
+    case 2: // ==
+    case 3: // !=
+        return 1;
+    case 4: // <=
+    case 5: // >=
+        return 2;
+    case 6: // <
+    case 7: // >
+        return 3;
+    case 8: // +
+    case 9: // -
+        return 4;
+    case 10: // *
+    case 11: // /
+        return 0;
+    case 12: // |
+    case 13: // &
+        return 0;
+    case 14: // <<
+    case 15: // >>
+        return 0;
+    default:
+        return -1;
+    }
 }
 
-void pushback(stack_t vastack, stack_t opstack, char* op) {
-    while (peek_ptr(opstack) && priority(op) <= priority((((value_operation_t*) peek_ptr(opstack))->operator_name))) {
+void pushback(stack_t vastack, stack_t opstack, int op) {
+    while (peek_ptr(opstack) && priority(op) <= priority((((value_operation_t*) peek_ptr(opstack))->operatorno))) {
         value_operation_t* opw = pop_ptr(opstack);
         opw->right = pop_ptr(vastack);
         opw->left = pop_ptr(vastack);
@@ -565,22 +577,33 @@ void pushback(stack_t vastack, stack_t opstack, char* op) {
     }
 }
 
-bool parse_expression_operator(context_t env, struct expression_parsing_locals* l) {
-    char* op = parse_operator(&l->r, &l->exc, env);
-    if (op != NULL) {
-        value_operation_t* opwrapper = malloc(sizeof(value_operation_t));
-        opwrapper->type = VALUE_OPERATION;
-        opwrapper->operator_name = op;
-        pushback(l->vastack, l->opstack, op);
-        push_ptr(l->opstack, opwrapper);
-        l->values_parsed++;
-        l->mode = SEARCH_VALUE;
-        return true;
+bool parse_expression_operator(struct expression_parsing_locals* l) {
+    value_filter_t* filter;
+    for (;;) {
+        filter = parse_filter(&l->r, &l->exc);
+        if (filter) {
+            value_t* last = pop_ptr(l->vastack);
+            filter->in = last;
+            push_ptr(l->vastack, filter);
+        }
+        else {
+            int op = parse_operator(&l->r, &l->exc);
+            if (op != -1) {
+                value_operation_t* opwrapper = malloc(sizeof(value_operation_t));
+                opwrapper->type = VALUE_OPERATION;
+                opwrapper->operatorno = op;
+                pushback(l->vastack, l->opstack, op);
+                push_ptr(l->opstack, opwrapper);
+                l->values_parsed++;
+                l->mode = SEARCH_VALUE;
+                return true;
+            }
+            return false;
+        }
     }
-    return false;
 }
 
-value_t* parse_expression(reader_t* reader, Exception** excptr, context_t env) {
+value_t* parse_expression(reader_t* reader, Exception** excptr) {
     struct expression_parsing_locals l;
     l.r = *reader;
     l.exc = NULL;
@@ -591,14 +614,14 @@ value_t* parse_expression(reader_t* reader, Exception** excptr, context_t env) {
     for (;;) {
         skip_whitespace(&l.r);
         if (l.mode == SEARCH_VALUE) {
-            if (!parse_expression_value(env, &l)) {
+            if (!parse_expression_value(&l)) {
                 update_exc(excptr, l.exc);
                 return NULL;
             }
         }
         else {
-            if (!parse_expression_operator(env, &l)) {
-                pushback(l.vastack, l.opstack, NULL);
+            if (!parse_expression_operator(&l)) {
+                pushback(l.vastack, l.opstack, -1);
                 value_t* val = pop_ptr(l.vastack);
                 stack_destroy(l.vastack);
                 stack_destroy(l.opstack);

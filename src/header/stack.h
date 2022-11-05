@@ -3,7 +3,7 @@
 
 #define STACK_CAPACITY_STEP 4096
 
-typedef struct stack_t {
+typedef struct stack {
     unsigned int bsize;
     unsigned int bcapacity;
     void* bdata;

@@ -63,7 +63,7 @@ long pop_lng(stack_t stack) implement_pop(long)
 long long pop_llg(stack_t stack) implement_pop(long long)
 void* pop_ptr(stack_t stack) implement_pop(void*)
 
-void destroy_stack(stack_t stack) {
+void stack_destroy(stack_t stack) {
     stack->bsize = 0;
     stack->bcapacity = 0;
     if (stack->bdata) free(stack->bdata);

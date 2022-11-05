@@ -7,9 +7,9 @@ typedef enum eval_type {
     EVAL_UNSPECIFIED,
     EVAL_CHAR,
     EVAL_INT,
-    EVAL_STRING,
     EVAL_FLOAT,
-    EVAL_PTR
+    EVAL_PTR,
+    EVAL_STRING
 } eval_type_t;
 
 union any {
@@ -24,7 +24,6 @@ typedef struct eval_val {
     int eval_type;
 } eval_val_t;
 
-typedef struct context* context_t;
 typedef struct filter_set* filter_set_t;
 
 #endif

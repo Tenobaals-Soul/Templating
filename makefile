@@ -8,32 +8,34 @@ INC_DIR = src/header
 # Compiler flags
 #
 CC     = gcc
-CFLAGS = -Wall -Wextra -Werror
+CFLAGS = -Wall -Wextra -Werror -fPIC
 
 #
 # Project files
 #
 SRCS=$(notdir $(shell find $(SRC_DIR) -name '*.c'))
 OBJS = $(SRCS:.c=.o)
-LIB  = open_template.so
+LIB = open_template
+LIBFILE = lib$(LIB).so
 
-LIBFLAGS = -fpic -shared -fvisibility=hidden
 
 #
 # Debug build settings
 #
 DBGDIR = debug
-DBGLIB = $(DBGDIR)/$(LIB)
+DBGLIB = $(DBGDIR)/$(LIBFILE)
 DBGOBJS = $(addprefix $(DBGDIR)/, $(OBJS))
 DBGCFLAGS = -g -O0 -DDEBUG
+DBGLIBFLAGS = -shared
 
 #
 # Release build settings
 #
 RELDIR = release
-RELLIB = $(RELDIR)/$(LIB)
+RELLIB = $(RELDIR)/$(LIBFILE)
 RELOBJS = $(addprefix $(RELDIR)/, $(OBJS))
 RELCFLAGS = -O3 -DNDEBUG
+LIBFLAGS = -shared -fvisibility=hidden
 
 #
 # Linker and macro Settings
@@ -49,11 +51,11 @@ all: prep release
 #
 # Debug rules
 #
-debug: prep $(DBGLIB)
+debug: $(DBGLIB)
 
 $(DBGLIB): $(DBGOBJS)
-	$(CC) $(CFLAGS) $(METAFLAGS) $(DBGCFLAGS) $(LIBFLAGS) -o $(DBGLIB) $^
-	@mv $(DBGLIB) ./$(LIB)
+	$(CC) $(CFLAGS) $(METAFLAGS) $(DBGCFLAGS) $(DBGLIBFLAGS) -o $(DBGLIB) $^
+	@mv $(DBGLIB) ./$(LIBFILE)
 
 $(DBGDIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) -c $(CFLAGS) $(METAFLAGS) $(DBGCFLAGS) -o $@ $<
@@ -64,11 +66,11 @@ $(DBGDIR)/%.o: $(SRC_DIR)/%.c
 release: $(RELLIB)
 
 $(RELLIB): $(RELOBJS)
-	$(CC) $(CFLAGS) $(METAFLAGS) $(RELCFLAGS) -o $(RELLIB) $^
+	$(CC) $(CFLAGS) $(METAFLAGS) $(RELCFLAGS) $(LIBFLAGS) -o $(RELLIB) $^
 
 $(RELDIR)/%.o: $(SRC_DIR)%.c
 	$(CC) -c $(CFLAGS) $(METAFLAGS) $(RELCFLAGS) -o $@ $<
-	@mv $(DBGLIB) ./$(LIB)
+	@mv $(DBGLIB) ./$(LIBFILE)
 
 #
 # Other rules
@@ -82,12 +84,12 @@ prep:
 
 TEST_DIR = tests
 TEST_CORE_DIR = test_core
-TESTLFLAGS = -L$(CURDIR) -lexample -Wl,-rpath=$(CURDIR)
+TESTLFLAGS = -L$(CURDIR) -l$(LIB) -Wl,-rpath=$(CURDIR)
 
 $(TEST_DIR)/%.elf: $(TEST_DIR)/%.c $(DBGOBJS) $(TEST_CORE_DIR)/test_core.c
 	$(CC) $(CFLAGS) $(METAFLAGS) $(DBGCFLAGS) $(DBGOBJS) $(TEST_CORE_DIR)/test_core.c -I$(TEST_CORE_DIR) $< -o $@ $(TESTLFLAGS)
 
-test:
+test: debug
 	@for file in $(TEST_DIR)/*.c ; do \
 		target="$${file%%.*}".elf ; \
 		make $${target} && \
@@ -95,7 +97,7 @@ test:
 		rm -f /$${target} ; \
 	done
 
-test-valgrind:
+test-valgrind: debug
 	@for file in $(TEST_DIR)/*.c ; do \
 		target="$${file%%.*}".elf ; \
 		make $${target} && \

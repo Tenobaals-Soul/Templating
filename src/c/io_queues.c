@@ -3,7 +3,7 @@
 #include <stack.h>
 #include <string.h>
 
-const struct output_queue_virtual_table {
+struct output_queue_virtual_table {
     void (*pushimpl)(output_queue_t self, char c);
     void (*pushmanyimpl)(output_queue_t self, const char* c, size_t bytes);
 };
@@ -17,10 +17,10 @@ void ssoq_push(output_queue_t self, char c) {
     push_chr(stack, c);
 }
 
-void ssoq_pushmany(output_queue_t self, char* c, size_t bytes) {
+void ssoq_pushmany(output_queue_t self, const char* c, size_t bytes) {
     struct stack* stack = (struct stack*) (self + 1);
     for (size_t i = 0; i < bytes; i++) {
-        push_str(stack, c[i]);
+        push_chr(stack, c[i]);
     }
 }
 
@@ -36,11 +36,11 @@ output_queue_t make_simple_string_output_queue() {
     return oq;
 }
 
-const struct input_queue_virtual_table {
+struct input_queue_virtual_table {
     void (*seekimpl)(input_queue_t self, size_t bytes);
-    char (*peekimpl)(input_queue_t self);
+    int (*peekimpl)(input_queue_t self);
     size_t (*peekmanyimpl)(input_queue_t self, size_t bytes, char* buffer);
-    char (*popimpl)(input_queue_t self);
+    int (*popimpl)(input_queue_t self);
     size_t (*popmanyimpl)(input_queue_t self, size_t bytes, char* buffer);
     void (*skipimpl)(input_queue_t self);
     size_t (*skipmanyimpl)(input_queue_t self, size_t bytes);
@@ -56,7 +56,6 @@ struct simple_string_input_queue_data {
 };
 
 void ssiq_seek(input_queue_t self, size_t bytes) {
-    struct simple_string_input_queue_data* qd = (void*) (self + 1);
     self->cur = bytes;
 }
 
@@ -68,7 +67,7 @@ int ssiq_peek(input_queue_t self) {
 size_t ssiq_peekmany(input_queue_t self, size_t bytes, char* buffer) {
     struct simple_string_input_queue_data* qd = (void*) (self + 1);
     size_t i;
-    char* src = qd->src + self->cur;
+    const char* src = qd->src + self->cur;
     for (i = 0; i < bytes && src[i]; i++) {
         buffer[i] = src[i];
     }
@@ -84,23 +83,7 @@ int ssiq_pop(input_queue_t self) {
 size_t ssiq_popmany(input_queue_t self, size_t bytes, char* buffer) {
     struct simple_string_input_queue_data* qd = (void*) (self + 1);
     size_t i;
-    char* src = qd->src + self->cur;
-    for (i = 0; i < bytes && src[i]; i++) {
-        buffer[i] = ssiq_pop(self);
-    }
-    buffer[i] = '\0';
-    return i;
-}
-
-int ssiq_pop(input_queue_t self) {
-    struct simple_string_input_queue_data* qd = (void*) (self + 1);
-    return qd->src[self->cur] == 0 ? -1 : qd->src[self->cur++];
-}
-
-size_t ssiq_popmany(input_queue_t self, size_t bytes, char* buffer) {
-    struct simple_string_input_queue_data* qd = (void*) (self + 1);
-    size_t i;
-    char* src = qd->src + self->cur;
+    const char* src = qd->src + self->cur;
     for (i = 0; i < bytes && src[i]; i++) {
         buffer[i] = ssiq_pop(self);
     }
@@ -116,7 +99,7 @@ void ssiq_skip(input_queue_t self) {
 size_t ssiq_skipmany(input_queue_t self, size_t bytes) {
     struct simple_string_input_queue_data* qd = (void*) (self + 1);
     size_t i;
-    char* src = qd->src + self->cur;
+    const char* src = qd->src + self->cur;
     for (i = 0; i < bytes && src[i]; i++) {
         self->cur++;
     }
@@ -133,7 +116,7 @@ struct input_queue_virtual_table simple_string_input_queue_vt = {
     ssiq_skipmany
 };
 
-output_queue_t make_simple_string_input_queue(const char* src) {
+input_queue_t make_simple_string_input_queue(const char* src) {
     input_queue_t oq = malloc(sizeof(struct input_queue) + sizeof(stack_t));
     struct simple_string_input_queue_data* qd = (void*) (oq + 1);
     oq->vt = &simple_string_input_queue_vt;
@@ -141,11 +124,6 @@ output_queue_t make_simple_string_input_queue(const char* src) {
     qd->src = src;
     return oq;
 }
-
-struct input_queue {
-    struct input_queue_virtual_table* vt;
-    void* data;
-};
 
 void pushqueue(output_queue_t queue, char c) {
     return queue->vt->pushimpl(queue, c);
@@ -179,7 +157,7 @@ int popqueue(input_queue_t queue) {
 
 size_t popqueuemany(input_queue_t queue, size_t bytes, char** buffer) {
     if (*buffer == NULL) *buffer = malloc(bytes + 1);
-    return queue->vt->popmanyimpl(queue, bytes, buffer);
+    return queue->vt->popmanyimpl(queue, bytes, *buffer);
 }
 void skipqueue(input_queue_t queue) {
     return queue->vt->skipimpl(queue);

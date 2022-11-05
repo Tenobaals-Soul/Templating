@@ -19,4 +19,6 @@ size_t popqueuemany(input_queue_t queue, size_t bytes, char** buffer);
 void skipqueue(input_queue_t queue);
 size_t skipqueuemany(input_queue_t queue, size_t bytes);
 
+input_queue_t make_simple_string_input_queue(const char* src);
+
 #endif
