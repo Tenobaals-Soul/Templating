@@ -145,19 +145,16 @@ int peekqueue(input_queue_t queue) {
     return queue->vt->peekimpl(queue);
 }
 
-size_t peekqueuemany(input_queue_t queue, size_t bytes, char** buffer) {
-    if (buffer == NULL) return skipqueuemany(queue, bytes);
-    if (*buffer == NULL) *buffer = malloc(bytes + 1);
-    return queue->vt->peekmanyimpl(queue, bytes, *buffer);
+size_t peekqueuemany(input_queue_t queue, size_t bytes, char* buffer) {
+    return queue->vt->peekmanyimpl(queue, bytes, buffer);
 }
 
 int popqueue(input_queue_t queue) {
     return queue->vt->popimpl(queue);
 }
 
-size_t popqueuemany(input_queue_t queue, size_t bytes, char** buffer) {
-    if (*buffer == NULL) *buffer = malloc(bytes + 1);
-    return queue->vt->popmanyimpl(queue, bytes, *buffer);
+size_t popqueuemany(input_queue_t queue, size_t bytes, char* buffer) {
+    return queue->vt->popmanyimpl(queue, bytes, buffer);
 }
 void skipqueue(input_queue_t queue) {
     return queue->vt->skipimpl(queue);

@@ -13,9 +13,9 @@ void pushqueuemany(output_queue_t queue, const char* c, size_t bytes);
 size_t getqueuepos(input_queue_t queue);
 void seekqueue(input_queue_t queue, size_t bytes);
 int peekqueue(input_queue_t queue);
-size_t peekqueuemany(input_queue_t queue, size_t bytes, char** buffer);
+size_t peekqueuemany(input_queue_t queue, size_t bytes, char* buffer);
 int popqueue(input_queue_t queue);
-size_t popqueuemany(input_queue_t queue, size_t bytes, char** buffer);
+size_t popqueuemany(input_queue_t queue, size_t bytes, char* buffer);
 void skipqueue(input_queue_t queue);
 size_t skipqueuemany(input_queue_t queue, size_t bytes);
 

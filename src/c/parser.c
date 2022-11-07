@@ -93,7 +93,8 @@ Exception* make_exception(Exception* caused_by, size_t parsed_symbols, reader_t 
     exc->caused_by = caused_by;
     exc->parsed_symbols = parsed_symbols;
     seekqueue(r.queue, r.cur);
-    peekqueuemany(r.queue, 16, &exc->text_pos);
+    exc->text_pos = malloc(17);
+    peekqueuemany(r.queue, 16, exc->text_pos);
     exc->val = buffer;
     return exc;
 }
@@ -102,6 +103,8 @@ char parse_char(reader_t* reader, Exception** excptr) {
     seekqueue(reader->queue, reader->cur);
     int out = popqueue(reader->queue);
     if (out == -1) update_exc(excptr, make_exception(NULL, 0, *reader, "EOF"));
+    reader->cur++;
+    if (getqueuepos(reader->queue) != reader->cur) seekqueue(reader->queue, reader->cur);
     return out;
 }
 
@@ -185,8 +188,9 @@ char parse_digit(reader_t* reader, Exception** excptr) {
 
 struct number parse_number(reader_t* reader, struct Exception** excptr) {
     seekqueue(reader->queue, reader->cur);
-    char* startptr;
-    peekqueuemany(reader->queue, 64, &startptr);
+    char buffer[64];
+    char* startptr = buffer;
+    peekqueuemany(reader->queue, 64, startptr);
     char* errptri;
     char* errptrf;
     uintmax_t iout = strtoumax(startptr, &errptri, 0);
@@ -209,17 +213,14 @@ struct number parse_number(reader_t* reader, struct Exception** excptr) {
     }
     if (errptr == startptr) {
         update_exc(excptr, make_exception(NULL, 0, *reader, "not a number"));
-        free(startptr);
         return (struct number) {0};
     }
     if (err == ERANGE) {
         update_exc(excptr, make_exception(NULL, 1, *reader, "number too big"));
-        free(startptr);
         return (struct number) {0};
     }
     update_exc(excptr, NULL);
     reader->cur += errptr - startptr;
-    free(startptr);
     return to_ret;
 }
 
@@ -262,14 +263,14 @@ bool parse_keyword(reader_t* reader, Exception** excptr, const char* expect) {
 }
 
 static const char* operators[] = {
-    "&&", "||",
-    "==", "!=",
-    "<=", ">=",
-    "<", ">",
-    "+", "-",
-    "*", "/",
-    "|", "&",
-    "<<", ">>",
+    [AND] = "&&", [OR] = "||",
+    [EQUALS] = "==", [NEQUALS] = "!=",
+    [LEQUALS] = "<=", [GEQUALS] = ">=",
+    [LESS] = "<", [GREATER] = ">",
+    [ADD] = "+", [SUBTRACT] "-",
+    [MULTIPLY] = "*", [DIVIDE] = "/",
+    [BINOR] = "|", [BINAND] = "&",
+    [LSHIFT] = "<<", [RSHIFT] ">>",
     NULL
 };
 
@@ -435,7 +436,7 @@ value_t* parse_variable(reader_t* reader, Exception** excptr) {
 
 value_filter_t* parse_filter(reader_t* reader, Exception** excptr) {
     reader_t r = *reader;
-    Exception* exc;
+    Exception* exc = NULL;
     if (!parse_specific_char(&r, &exc, ':')) {
         update_exc(excptr, make_exception(exc, 0, r, "expected : for a filter"));
         return NULL;
@@ -451,11 +452,38 @@ value_filter_t* parse_filter(reader_t* reader, Exception** excptr) {
     return out;
 }
 
+value_t* parse_paranthesis_expression(reader_t* reader, Exception** excptr) {
+    reader_t r = *reader;
+    Exception* exc = NULL;
+    if (!parse_specific_char(&r, &exc, '(')) {
+        update_exc(excptr, make_exception(exc, 0, r, "expected a expression in paranthesis here"));
+        return NULL;
+    }
+    value_t* val = parse_expression(&r, &exc);
+    if (val == NULL) {
+        update_exc(excptr, make_exception(exc, 1, r, "expected a expression"));
+        return NULL;
+    }
+    if (!parse_specific_char(&r, &exc, ')')) {
+        update_exc(excptr, make_exception(exc, 0, r, "expected a closing paranthesis"));
+        free_value(val);
+        return NULL;
+    }
+    *reader = r;
+    return val;
+}
+
 value_t* parse_value(reader_t* reader, Exception** excptr) {
     Exception* temp_exc = NULL;
     Exception* exc = NULL;
     value_t* out;
     skip_whitespace(reader);
+    if ((out = parse_paranthesis_expression(reader, &exc))) {
+        if (temp_exc) free_exception(temp_exc);
+        return out;
+    }
+    else update_exc(&temp_exc, exc);
+    exc = NULL;
     if ((out = parse_character_value(reader, &exc))) {
         if (temp_exc) free_exception(temp_exc);
         return out;
@@ -539,30 +567,30 @@ int priority(int op) {
     switch (op) {
     case -1: // pushback all
         return INT_MIN;
-    case 0: // &&
-    case 1: // ||
+    case AND: // &&
+    case OR: // ||
         return 0;
-    case 2: // ==
-    case 3: // !=
+    case EQUALS: // ==
+    case NEQUALS: // !=
         return 1;
-    case 4: // <=
-    case 5: // >=
+    case LEQUALS: // <=
+    case GEQUALS: // >=
         return 2;
-    case 6: // <
-    case 7: // >
+    case LESS: // <
+    case GREATER: // >
         return 3;
-    case 8: // +
-    case 9: // -
+    case ADD: // +
+    case SUBTRACT: // -
         return 4;
-    case 10: // *
-    case 11: // /
-        return 0;
-    case 12: // |
-    case 13: // &
-        return 0;
-    case 14: // <<
-    case 15: // >>
-        return 0;
+    case MULTIPLY: // *
+    case DIVIDE: // /
+        return 5;
+    case BINOR: // |
+    case BINAND: // &
+        return 6;
+    case LSHIFT: // <<
+    case RSHIFT: // >>
+        return 7;
     default:
         return -1;
     }

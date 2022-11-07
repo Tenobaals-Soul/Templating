@@ -65,7 +65,7 @@ void test_value_parsing() {
 }
 
 void test_expression_parsing() {
-    struct Exception* exc;
+    struct Exception* exc = NULL;
     value_operation_t* val;
     val = (void*) parse_expression(mr("5 + 7"), &exc);
     if (val == NULL) { print_exception(exc); exc = NULL; assert_true(false); }
