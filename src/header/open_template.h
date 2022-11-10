@@ -2,27 +2,12 @@
 #define INCLUDE_OPEN_TEMPLATE_H
 #include <string_dict.h>
 
-
-typedef enum eval_type {
-    EVAL_UNSPECIFIED,
-    EVAL_CHAR,
-    EVAL_INT,
-    EVAL_FLOAT,
-    EVAL_PTR,
-    EVAL_STRING
-} eval_type_t;
-
-union any {
-    char c;
-    long i;
-    char* s;
-    double f;
-    void* p;
-};
-
-typedef struct eval_val {
-    int eval_type;
-} eval_val_t;
+typedef union any (*filter_chr_type)(char);
+typedef union any (*filter_int_type)(long);
+typedef union any (*filter_flt_type)(double);
+typedef union any (*filter_str_type)(const char*, size_t actual_lenght);
+typedef union any (*filter_ptr_type)(void*);
+typedef union any (*filter_boo_type)(bool);
 
 typedef struct filter_set* filter_set_t;
 

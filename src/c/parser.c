@@ -465,7 +465,7 @@ value_t* parse_paranthesis_expression(reader_t* reader, Exception** excptr) {
         return NULL;
     }
     if (!parse_specific_char(&r, &exc, ')')) {
-        update_exc(excptr, make_exception(exc, 0, r, "expected a closing paranthesis"));
+        update_exc(excptr, make_exception(exc, 2, r, "expected a closing paranthesis"));
         free_value(val);
         return NULL;
     }

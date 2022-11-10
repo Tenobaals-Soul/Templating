@@ -5,9 +5,9 @@
 #define ceil(x, ceil) (ceil_div(x, ceil) * ceil)
 
 void init_stack(stack_t stack) {
-    stack->bcapacity = STACK_CAPACITY_STEP;
+    stack->bcapacity = 0;
     stack->bsize = 0;
-    stack->bdata = malloc(stack->bcapacity);
+    stack->bdata = NULL;
 }
 
 static inline void realloc_on_full(stack_t stack, int push_s) {

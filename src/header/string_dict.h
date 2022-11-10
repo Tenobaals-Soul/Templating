@@ -1,6 +1,7 @@
 #ifndef INCLUDE_STRING_DICT_H
 #define INCLUDE_STRING_DICT_H
-#include<stdbool.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 #define STRING_DICT_TABLE_SIZE 512
 
