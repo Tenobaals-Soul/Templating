@@ -11,7 +11,7 @@ void init_stack(stack_t stack) {
 }
 
 static inline void realloc_on_full(stack_t stack, int push_s) {
-    if (ceil_div(stack->bsize, push_s) * push_s < stack->bcapacity) {
+    if (ceil_div(stack->bsize, push_s) * push_s + push_s > stack->bcapacity) {
         stack->bcapacity += STACK_CAPACITY_STEP;
         stack->bdata = realloc(stack->bdata, stack->bcapacity);
     }

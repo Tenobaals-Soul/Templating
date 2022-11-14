@@ -2,6 +2,45 @@
 #include <string.h>
 #include <stdio.h>
 
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
+
+union any filter_chr_to_string(char c) {
+    char* out = malloc(2);
+    out[0] = c;
+    out[1] = 0;
+    return (union any) {.s = {out, 1}};
+}
+
+union any filter_int_to_string(long i) {
+    char ibuf[64];
+    size_t len = snprintf(ibuf, 64, "%ld", i);
+    return (union any) {.s = {strdup(ibuf), len}};
+}
+
+union any filter_flt_to_string(double f) {
+    char ibuf[64];
+    size_t len = snprintf(ibuf, 64, "%f", f);
+    return (union any) {.s = {strdup(ibuf), len}};
+}
+
+union any filter_str_to_string(const char* s, size_t len) {
+    return (union any) {.s = {strdup(s), len}};
+}
+
+union any filter_ptr_to_string(void* p)  {
+    char ibuf[64];
+    size_t len = snprintf(ibuf, 64, "%p", p);
+    return (union any) {.s = {strdup(ibuf), len}};
+}
+
+union any filter_boo_to_string(bool b) {
+    return (union any) {.s = b ?
+        (string_t) {strdup("true"), 4} :
+        (string_t) {strdup("false"), 5}
+    };
+}
+
 union any and_cc(union any v1, union any v2) { return (union any) {.b = v1.c && v2.c}; }
 union any and_ci(union any v1, union any v2) { return (union any) {.b = v1.c && v2.i}; }
 union any and_cf(union any v1, union any v2) { return (union any) {.b = v1.c && v2.f}; }
@@ -159,6 +198,54 @@ union any add_bs(union any v1, union any v2) {
     return (union any) {.s = strconc(ibuf, len, v2.s.val, v2.s.len)};
 }
 
+// greater operator
+union any gr_cc(union any v1, union any v2) { return (union any) {.b = v1.c > v2.c}; }
+union any gr_ci(union any v1, union any v2) { return (union any) {.b = v1.c > v2.i}; }
+
+union any gr_ic(union any v1, union any v2) { return (union any) {.b = v1.i > v2.c}; }
+union any gr_ii(union any v1, union any v2) { return (union any) {.b = v1.i > v2.i}; }
+
+union any gr_ss(union any v1, union any v2) {
+    int res = memcmp(v1.s.val, v2.s.val, MIN(v1.s.len, v2.s.len));
+    return (union any) { .b = res == 0 ? v1.s.len > v2.s.len : res > 0 };
+}
+
+// less operator
+union any ls_cc(union any v1, union any v2) { return (union any) {.b = v1.c < v2.c}; }
+union any ls_ci(union any v1, union any v2) { return (union any) {.b = v1.c < v2.i}; }
+
+union any ls_ic(union any v1, union any v2) { return (union any) {.b = v1.i < v2.c}; }
+union any ls_ii(union any v1, union any v2) { return (union any) {.b = v1.i < v2.i}; }
+
+union any ls_ss(union any v1, union any v2) {
+    int res = memcmp(v1.s.val, v2.s.val, MIN(v1.s.len, v2.s.len));
+    return (union any) { .b = res == 0 ? v1.s.len < v2.s.len : res < 0 };
+}
+
+// greater equal operator
+union any ge_cc(union any v1, union any v2) { return (union any) {.b = v1.c >= v2.c}; }
+union any ge_ci(union any v1, union any v2) { return (union any) {.b = v1.c >= v2.i}; }
+
+union any ge_ic(union any v1, union any v2) { return (union any) {.b = v1.i >= v2.c}; }
+union any ge_ii(union any v1, union any v2) { return (union any) {.b = v1.i >= v2.i}; }
+
+union any ge_ss(union any v1, union any v2) {
+    int res = memcmp(v1.s.val, v2.s.val, MIN(v1.s.len, v2.s.len));
+    return (union any) { .b = res == 0 ? v1.s.len >= v2.s.len : res >= 0 };
+}
+
+// less equal operator
+union any le_cc(union any v1, union any v2) { return (union any) {.b = v1.c <= v2.c}; }
+union any le_ci(union any v1, union any v2) { return (union any) {.b = v1.c <= v2.i}; }
+
+union any le_ic(union any v1, union any v2) { return (union any) {.b = v1.i <= v2.c}; }
+union any le_ii(union any v1, union any v2) { return (union any) {.b = v1.i <= v2.i}; }
+
+union any le_ss(union any v1, union any v2) {
+    int res = memcmp(v1.s.val, v2.s.val, MIN(v1.s.len, v2.s.len));
+    return (union any) { .b = res == 0 ? v1.s.len <= v2.s.len : res <= 0 };
+}
+
 union any sub_ci(union any v1, union any v2) { return (union any) {.i = v1.c - v2.i}; }
 
 union any sub_ic(union any v1, union any v2) { return (union any) {.c = v1.i - v2.c}; }
@@ -170,17 +257,7 @@ union any sub_ff(union any v1, union any v2) { return (union any) {.b = v1.f - v
 
 struct op_func op_functions[16][7][7] = {
     [AND] {
-        [EVAL_UNSPECIFIED] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
         [EVAL_CHAR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_cc},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_ci},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_cf},
@@ -189,7 +266,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      and_cb},
         },
         [EVAL_INT] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_ic},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_ii},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_if},
@@ -198,7 +274,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      and_ib},
         },
         [EVAL_FLOAT]        {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_fc},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_fi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_ff},
@@ -207,7 +282,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      and_fb},
         },
         [EVAL_PTR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_pc},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_pi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_pf},
@@ -216,7 +290,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      and_pb},
         },
         [EVAL_STRING] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_sc},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_si},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_sf},
@@ -225,7 +298,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      and_sb},
         },
         [EVAL_BOOLEAN] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      and_bc},
             [EVAL_INT]          {EVAL_BOOLEAN,      and_bi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      and_bf},
@@ -235,17 +307,7 @@ struct op_func op_functions[16][7][7] = {
         },
     },
     [OR] {
-        [EVAL_UNSPECIFIED] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
         [EVAL_CHAR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_cc},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_ci},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_cf},
@@ -254,7 +316,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_cb},
         },
         [EVAL_INT] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_ic},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_ii},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_if},
@@ -263,7 +324,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_ib},
         },
         [EVAL_FLOAT]        {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_fc},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_fi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_ff},
@@ -272,7 +332,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_fb},
         },
         [EVAL_PTR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_pc},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_pi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_pf},
@@ -281,7 +340,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_pb},
         },
         [EVAL_STRING] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_sc},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_si},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_sf},
@@ -290,7 +348,6 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_sb},
         },
         [EVAL_BOOLEAN] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_BOOLEAN,      or_bc},
             [EVAL_INT]          {EVAL_BOOLEAN,      or_bi},
             [EVAL_FLOAT]        {EVAL_BOOLEAN,      or_bf},
@@ -300,53 +357,26 @@ struct op_func op_functions[16][7][7] = {
         },
     },
     [ADD] {
-        [EVAL_UNSPECIFIED] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
         [EVAL_CHAR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_STRING,       add_cc},
             [EVAL_INT]          {EVAL_INT,          add_ci},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
             [EVAL_STRING]       {EVAL_STRING,       add_cs},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
         },
         [EVAL_INT] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_INT,          add_ic},
             [EVAL_INT]          {EVAL_INT,          add_ii},
             [EVAL_FLOAT]        {EVAL_FLOAT,        add_if},
             [EVAL_STRING]       {EVAL_STRING,       add_is},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
         },
         [EVAL_FLOAT]        {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
             [EVAL_INT]          {EVAL_FLOAT,        add_fi},
             [EVAL_FLOAT]        {EVAL_FLOAT,        add_ff},
             [EVAL_STRING]       {EVAL_STRING,       add_fs},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
         },
         [EVAL_PTR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
             [EVAL_STRING]       {EVAL_UNSPECIFIED,  add_ps},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
         },
         [EVAL_STRING] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
             [EVAL_CHAR]         {EVAL_STRING,       add_sc},
             [EVAL_INT]          {EVAL_STRING,       add_si},
             [EVAL_FLOAT]        {EVAL_STRING,       add_sf},
@@ -355,78 +385,74 @@ struct op_func op_functions[16][7][7] = {
             [EVAL_BOOLEAN]      {EVAL_STRING,       add_sb},
         },
         [EVAL_BOOLEAN] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
             [EVAL_STRING]       {EVAL_STRING,       add_bs},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
             [EVAL_BOOLEAN]      {EVAL_BOOLEAN,      or_bb},
         },
     },
-    [SUBTRACT] {
-        [EVAL_UNSPECIFIED] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
+    [GREATER] {
         [EVAL_CHAR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_INT,          sub_ci},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      gr_cc},
+            [EVAL_INT]          {EVAL_BOOLEAN,      gr_ci}
         },
         [EVAL_INT] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      gr_ic},
+            [EVAL_INT]          {EVAL_BOOLEAN,      gr_ii}
+        },
+        [EVAL_STRING] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      gr_ss}
+        }
+    },
+    [LESS] {
+        [EVAL_CHAR] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ls_cc},
+            [EVAL_INT]          {EVAL_BOOLEAN,      ls_ci}
+        },
+        [EVAL_INT] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ls_ic},
+            [EVAL_INT]          {EVAL_BOOLEAN,      ls_ii}
+        },
+        [EVAL_STRING] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ls_ss}
+        }
+    },
+    [GEQUALS] {
+        [EVAL_CHAR] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ge_cc},
+            [EVAL_INT]          {EVAL_BOOLEAN,      ge_ci}
+        },
+        [EVAL_INT] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ge_ic},
+            [EVAL_INT]          {EVAL_BOOLEAN,      ge_ii}
+        },
+        [EVAL_STRING] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      ge_ss}
+        }
+    },
+    [LEQUALS] {
+        [EVAL_CHAR] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      le_cc},
+            [EVAL_INT]          {EVAL_BOOLEAN,      le_ci}
+        },
+        [EVAL_INT] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      le_ic},
+            [EVAL_INT]          {EVAL_BOOLEAN,      le_ii}
+        },
+        [EVAL_STRING] {
+            [EVAL_CHAR]         {EVAL_BOOLEAN,      le_ss}
+        }
+    },
+    [SUBTRACT] {
+        [EVAL_CHAR] {
+            [EVAL_INT]          {EVAL_INT,          sub_ci},
+        },
+        [EVAL_INT] {
             [EVAL_CHAR]         {EVAL_INT,          sub_ic},
             [EVAL_INT]          {EVAL_INT,          sub_ii},
             [EVAL_FLOAT]        {EVAL_FLOAT,        sub_if},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
         },
         [EVAL_FLOAT]        {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
             [EVAL_INT]          {EVAL_FLOAT,        sub_fi},
             [EVAL_FLOAT]        {EVAL_FLOAT,        sub_ff},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
-        [EVAL_PTR] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
-        [EVAL_STRING] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
-        [EVAL_BOOLEAN] {
-            [EVAL_UNSPECIFIED]  {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_CHAR]         {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_INT]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_FLOAT]        {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_STRING]       {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_PTR]          {EVAL_UNSPECIFIED,  NULL},
-            [EVAL_BOOLEAN]      {EVAL_UNSPECIFIED,  NULL},
-        },
+        }
     }
 };

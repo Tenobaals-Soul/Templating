@@ -111,6 +111,7 @@ int resolve_variable(value_variable_t* val, string_dict_t vaargs) {
     return 0;
 }
 
+__attribute__((__const__))
 eval_type_t evaluates_to(value_t* val) {
     switch (*val) {
         case VALUE_CHAR:
@@ -232,65 +233,109 @@ int resolve_symbols(list_t expressions, string_dict_t context, string_dict_t vaa
     return 0;
 }
 
-static union any evaluate_single_expression(value_t* expression, string_dict_t filter_dict, void* data);
+static union any evaluate_single_expression(value_t* expression, void* data);
 
-static inline union any apply_filter(void* filter, value_t* inner, string_dict_t filter_dict, void* data) {
+static inline union any apply_filter(void* filter, value_t* inner, void* data) {
+    union any in = evaluate_single_expression(inner, data);
+    union any out;
     switch (evaluates_to(inner)) {
     case EVAL_UNSPECIFIED:
-        return (union any) {.s = { strdup(""), 0 }};
+        out = (union any) {.s = { strdup(""), 0 }};
+        break;
     case EVAL_CHAR:
-        return ((filter_chr_type) filter)(evaluate_single_expression(inner, filter_dict, data).c);
+        out = ((filter_chr_type) filter)(in.c);
+        break;
     case EVAL_INT:
-        return ((filter_int_type) filter)(evaluate_single_expression(inner, filter_dict, data).i);
+        out = ((filter_int_type) filter)(in.i);
+        break;
     case EVAL_FLOAT:
-        return ((filter_flt_type) filter)(evaluate_single_expression(inner, filter_dict, data).f);
+        out = ((filter_flt_type) filter)(in.f);
+        break;
     case EVAL_STRING:
-        string_t s = evaluate_single_expression(inner, filter_dict, data).s;
-        return ((filter_str_type) filter)(s.val, s.len);
+        string_t s = in.s;
+        out = ((filter_str_type) filter)(s.val, s.len);
+        break;
     case EVAL_PTR:
-        return ((filter_ptr_type) filter)(evaluate_single_expression(inner, filter_dict, data).p);
+        out = ((filter_ptr_type) filter)(in.p);
+        break;
     case EVAL_BOOLEAN:
-        return ((filter_boo_type) filter)(evaluate_single_expression(inner, filter_dict, data).b);
+        out = ((filter_boo_type) filter)(in.b);
+        break;
     }
-    return (union any) {0};
+    if (evaluates_to(inner) == EVAL_STRING) { free(in.s.val); }
+    return out;
 }
 
-union any add_cc(union any v1, union any v2) {
-    char* mem = malloc(3);
-    mem[0] = v1.c;
-    mem[1] = v2.c;
-    mem[2] = 0;
-    return (union any) {.s = { mem, 2 }};
+static union any evaluate_operation(value_operation_t* op, void* data) {
+    union any left = evaluate_single_expression(op->left, data);
+    union any right = evaluate_single_expression(op->right, data);
+    union any result = op_functions[op->operatorno][evaluates_to(op->left)][evaluates_to(op->right)].add_func(left, right);
+    if (evaluates_to(op->left) == EVAL_STRING) { free(left.s.val); }
+    if (evaluates_to(op->right) == EVAL_STRING) { free(right.s.val); }
+    return result;
 }
 
-union any add_ci(union any v1, union any v2) {
-    return (union any) {.c = v1.c + v2.i};
+static union any evaluate_variable(value_variable_t* off, void* data) {
+    char* pos = ((char*) data) + off->resolved_off;
+    switch (evaluates_to((value_t*) off)) {
+    case EVAL_UNSPECIFIED:
+        break;
+    case EVAL_CHAR:
+        return (union any) {.b = *((char*) pos)};
+    case EVAL_INT:
+        return (union any) {.i = *((long*) pos)};
+    case EVAL_FLOAT:
+        return (union any) {.f = *((double*) pos)};
+    case EVAL_PTR:
+        return (union any) {.p = *((void**) pos)};
+    case EVAL_STRING:
+        return (union any) {.s = { *((char**) pos), *((size_t*) (pos + sizeof(char*)))}};
+    case EVAL_BOOLEAN:
+        return (union any) {.b = *((bool*) pos)};
+    }
+    return (union any) {.s = {strdup(""), 0}};
 }
 
-union any add_cs(union any v1, union any v2) {
-    char* mem = malloc(v2.s.len + 2);
-    mem[0] = v1.c;
-    memcpy(mem + 1, v2.s.val, v2.s.len);
-    return (union any) {.c = v1.c + v2.i};
+static union any evaluate_single_expression(value_t* expression, void* data) {
+    switch (*expression) {
+    case VALUE_OPERATION:
+        return evaluate_operation((value_operation_t*) expression, data);
+    case VALUE_CHAR:
+        return (union any) {.c = ((value_char_t*) expression)->value};
+    case VALUE_FLOATING:
+        return (union any) {.f = ((value_floating_t*) expression)->value};
+    case VALUE_INTEGER:
+        return (union any) {.i = ((value_integer_t*) expression)->value};
+    case VALUE_STRING:
+        return (union any) {.s = {memcpy(
+            malloc(((value_string_t*) expression)->actual_length + 1),
+            ((value_string_t*) expression)->value,
+            ((value_string_t*) expression)->actual_length + 1
+        )}};
+    case VALUE_VARIABLE:
+        return evaluate_variable((value_variable_t*) expression, data);
+    case VALUE_FILTER:
+        return apply_filter(
+            ((value_filter_t*) expression)->resolved,
+            ((value_filter_t*) expression)->in,
+            data
+        );
+    }
+    return (union any) {.s = {strdup(""), 0}};
 }
-
-#define CEIL_DIV(x, y) (((x) + (y) - 1) / (y))
 
 void* create_data_dynamically(string_dict_t vaargs, string_dict_t vaargsoffet) {
     string_dict_init(vaargsoffet);
     stack_t data;
     init_stack(data);
-    size_t off = 0;
     for (dict_iter_t i = get_dict_iter(vaargs); i.hasnext; dict_iter_advance(&i)) {
-        string_dict_put(vaargsoffet, i.key, (void*) off);
+        string_dict_put(vaargsoffet, i.key, (void*) (intptr_t) data->bsize);
         switch (((typed_value_t*) i.val)->type) {
         case EVAL_CHAR:
-            push_int(data, ((typed_value_t*) i.val)->val.c);
-            off += CEIL_DIV(sizeof(char), sizeof(int));
+            push_chr(data, ((typed_value_t*) i.val)->val.c);
             break;
         case EVAL_INT:
             push_lng(data, ((typed_value_t*) i.val)->val.i);
-            off += CEIL_DIV(sizeof(int), sizeof(int));
             break;
         case EVAL_FLOAT:
 #if SIZEOF_DOUBLE == SIZEOF_LONG
@@ -298,25 +343,50 @@ void* create_data_dynamically(string_dict_t vaargs, string_dict_t vaargsoffet) {
 #elif SIZEOF_DOUBLE == SIZEOF_LONG_LONG
             push_llg(data, ((typed_value_t*) i.val)->val.f);
 #endif
-            off += CEIL_DIV(sizeof(float), sizeof(int));
             break;
         case EVAL_UNSPECIFIED:
         case EVAL_STRING:
             push_ptr(data, ((typed_value_t*) i.val)->val.s.val);
             push_lng(data, ((typed_value_t*) i.val)->val.s.len);
-            off += CEIL_DIV(sizeof(char*) + sizeof(long), sizeof(int));
             break;
         case EVAL_PTR:
             push_ptr(data, ((typed_value_t*) i.val)->val.p);
-            off += CEIL_DIV(sizeof(void*), sizeof(int));
             break;
         case EVAL_BOOLEAN:
             push_chr(data, ((typed_value_t*) i.val)->val.b);
-            off += CEIL_DIV(sizeof(void*), sizeof(bool));
             break;
         }
     }
     return stack_disown(data);
+}
+
+string_t tostrinternal(union any val, eval_type_t type) {
+    switch (type) {
+    case EVAL_UNSPECIFIED:
+        break;
+    case EVAL_CHAR:
+        return filter_chr_to_string(val.c).s;
+    case EVAL_INT:
+        return filter_int_to_string(val.i).s;
+    case EVAL_FLOAT:
+        return filter_flt_to_string(val.f).s;
+    case EVAL_STRING:
+        return val.s;
+    case EVAL_PTR:
+        return filter_ptr_to_string(val.p).s;
+    case EVAL_BOOLEAN:
+        return filter_boo_to_string(val.b).s;
+    }
+    return (string_t) {strdup(""), 0};
+}
+
+void evaluate(list_t expressions, output_queue_t outstr, void* data) {
+    for (size_t i = 0; i < expressions->wsize; i++) {
+        value_t* exp = get_ptr(expressions, i);
+        union any val = evaluate_single_expression(exp, data);
+        string_t str = tostrinternal(val, evaluates_to(exp));
+        pushqueuemany(outstr, str.val, str.len);
+    }
 }
 
 int insert(input_queue_t instr, output_queue_t outstr, string_dict_t filter_dict, string_dict_t vaargs) {
@@ -330,7 +400,7 @@ int insert(input_queue_t instr, output_queue_t outstr, string_dict_t filter_dict
     errc = resolve_symbols(expressions, filter_dict, vaargsoffset);
     string_dict_destroy(vaargsoffset);
     if (errc) return errc;
-    evaluate(expressions, outstr, filter_dict, data);
+    evaluate(expressions, outstr, data);
     free(data);
     return 0;
 }
